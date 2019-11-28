@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+################################################
+################# SETUP ########################
+################################################
+
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+NC='\033[0m' # No Color
+
+underline=`tput smul`
+nounderline=`tput rmul`
+bold=`tput bold`
+normal=`tput sgr0`
+
+usage() {
+  echo -e "" 1>&2;
+  echo -e "${underline}Usage:${nounderline}" 1>&2;
+  echo -e "" 1>&2;
+  echo -e "\t$ repopush --repo ${PURPLE}REPO${NC}" 1>&2;
+  echo -e "" 1>&2;
+  echo -e "\t Updates the *.podspec file in the current working directory by incrementing the version, " 1>&2;
+  echo -e "\t tagging the git repo with the new version and then finally pushing the podspec to ${PURPLE}REPO${NC}." 1>&2;
+  echo -e "" 1>&2;
+  echo -e "${underline}Options:${nounderline}" 1>&2;
+  echo -e "" 1>&2;
+  echo -e "\t${BLUE}--repo${NC}\t\t\t the podspec repo to push to" 1>&2;
+  echo -e "" 1>&2;  
+  echo -e "\t${BLUE}--sources${NC}\t\t sources parameter for 'pod repo push'" 1>&2;
+  echo -e "" 1>&2;
+  exit -1;
+}
+
+while getopts "x-:" optchar
+do
+  case "${optchar}"
+  in
+  -)
+    case "${OPTARG}"
+    in
+      repo)
+        repo="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
+      sources)
+        sources="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
+    esac;;
+
+  esac
+done
+
+if [ -z "$repo" ]; then
+  echo "Invalid pod spec repo!";
+  usage
+fi;
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "You have uncommited changes. Please commit them before continuing";
+    git status -s --column
+    usage
+fi
+
+################################################
+############ UPDATE THE POD SPEC ###############
+################################################
+
+# find the podspec file in the current directory
+podspecfile=$(find $PWD -name "*.podspec")
+echo "podspec: $podspecfile"
+
+# get the current version number from the podspec file
+version=$(egrep --max-count=1 --only-matching "\d{1,2}.\d{1,2}.\d{1,2}" $podspecfile)
+
+# increase the current version number
+nextversion=$(echo $version | awk -F. -v OFS=. '
+  NF == 1 { print ++$NF };
+  NF > 1 {
+    # if increasing this number would cause it to be double digits then increment the previous field as well
+    if (length($NF + 1) > length($NF)) {
+        $(NF - 1)++;
+    }
+    $NF = sprintf("%0*d", length($NF), ($NF + 1) % (10 ^ length($NF)));
+    print
+  };
+');
+
+echo "$version -> $nextversion"
+perl -e "s/$version/$nextversion/" -pi $podspecfile
+
+################################################
+############ PUSH THE REPO #####################
+################################################
+
+# validate the spec repo
+repovalidate=$(echo "pod spec lint ${sources} --allow-warnings --quick")
+$repovalidate
+
+# if we failed to publish the pod then fail
+if [ $? -ne 0 ]; then
+  echo 'process failed. rolling back changes';
+  perl -e "s/$nextversion/$version/" -pi $podspecfile
+  exit -1;
+fi
+
+################################################
+############ COMMIT TO GIT #####################
+################################################
+
+# commit the message
+git add .
+git commit -m "podspec version update"
+
+# if we failed to publish the pod then fail
+if [ $? -ne 0 ]; then
+  echo 'process failed. rolling back changes';
+  perl -e "s/$nextversion/$version/" -pi $podspecfile
+  exit -1;
+fi
+
+# tag the repo
+tag=$(echo "git tag $nextversion")
+$tag
+
+# push the repo
+push=$(echo "git push")
+$push
+
+# and the tags
+push=$(echo "git push --tags")
+$push
+
+# if we failed to publish the pod then fail
+if [ $? -ne 0 ]; then
+  echo 'process failed. rolling back changes';
+  perl -e "s/$nextversion/$version/" -pi $podspecfile
+  exit -1;
+fi
+
+# push the spec repo
+repopush=$(echo "pod repo push ${repo} --allow-warnings")
+$repopush
+
+exit 0;
