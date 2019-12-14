@@ -3,9 +3,10 @@
 ################################################
 ################# SETUP ########################
 ################################################
-
+GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 underline=`tput smul`
@@ -15,21 +16,187 @@ normal=`tput sgr0`
 
 usage() {
   echo -e "" 1>&2;
-  echo -e "${underline}Usage:${nounderline}" 1>&2;
+  echo -e "${bold}usage:${normal} podspecutil <command> [<args>]" 1>&2;
   echo -e "" 1>&2;
-  echo -e "\t$ repopush --repo ${PURPLE}REPO${NC}" 1>&2;
+  echo -e "Commands to manage a cocopod podspec." 1>&2;
   echo -e "" 1>&2;
-  echo -e "\t Updates the *.podspec file in the current working directory by incrementing the version, " 1>&2;
-  echo -e "\t tagging the git repo with the new version and then finally pushing the podspec to ${PURPLE}REPO${NC}." 1>&2;
+  echo -e "${underline}commands${nounderline}" 1>&2;
+  echo -e "push    \t Pushes a podspec to remote" 1>&2;
+  echo -e "update  \t Updates the podspec version and commits the changes" 1>&2;
+  echo -e "tag     \t Tags a git repo with the current podspec version." 1>&2;
+  echo -e "validate\t Validates the podspec" 1>&2;
   echo -e "" 1>&2;
-  echo -e "${underline}Options:${nounderline}" 1>&2;
   echo -e "" 1>&2;
-  echo -e "\t${BLUE}--repo${NC}\t\t\t the podspec repo to push to" 1>&2;
-  echo -e "" 1>&2;  
-  echo -e "\t${BLUE}--sources${NC}\t\t sources parameter for 'pod repo push'" 1>&2;
+  echo -e "${underline}arguments:${nounderline}" 1>&2;
   echo -e "" 1>&2;
-  exit -1;
+  echo -e "${BLUE}--spec-repo=<name>${NC}\t\t The name of the spec repo" 1>&2;
+  echo -e "" 1>&2;
+  echo -e "${BLUE}--sources=<source1,source2,etc>${NC}\t Private cocoapod source urls, comma separated." 1>&2;
+  echo -e "" 1>&2;
+  echo -e "${BLUE}--path=<path>${NC}\t\t\t Working path. defaults to the current working directory" 1>&2;
+  echo -e "" 1>&2;
+  echo -e "${BLUE}--usage${NC}\t\t\t\t Prints this usage information" 1>&2;
+  echo -e "" 1>&2;
+  exit 1;
 }
+
+validateSpecRepoName() {
+  if [[ ! -n "$SPEC_REPO_NAME" ]]; then
+    echo -e "${bold}${RED}Missing spec repo ${bold}${NC}"
+    usage
+  fi
+}
+
+validateCleanWorkingDirectory() {
+  if [[ -n "$(git -C $WORKING_PATH status --porcelain)" ]]; then
+    echo -e "${RED}You have uncommited changes. Please commit them before continuing${NC}"
+    git -C "$WORKING_PATH" status -s --column
+    exit 1
+  fi
+}
+
+isGit() {
+  local isGit
+  if [[ -d "$1"/.git ]]; then
+    isGit=1
+  else
+    isGit=0
+  fi;
+
+  echo "$isGit"
+}
+
+isPod() {
+  local isCocoapod
+  if [ -z $(find "$1" -maxdepth 1 -name "*.podspec") ]; then
+    isCocoapod=0
+  else
+    isCocoapod=1
+  fi
+  echo "$isCocoapod"
+};
+
+# find the *.podspec file in working directory
+findPodspec() {
+  local abs_working_path=$(cd "$1" && pwd)
+  local podspecfile=$(find $abs_working_path -maxdepth 1 -name "*.podspec")
+  if [ -z "$podspecfile" ]; then
+    exit 1
+  else
+    echo "$podspecfile"
+  fi
+}
+
+# validates the podspec file, locally
+validatePodspec() {
+  echo -e "${GREEN}Validating podspec...${NC}"
+  pod spec lint --sources="$PODSPEC_SOURCES" --allow-warnings --quick "$1" &> /dev/null
+  if [[ ! $? -eq 0 ]]; then
+    echo -e "${RED}Failed to validate pod spec${NC}${normal}"
+  fi
+}
+
+# pushes the podspec to the remote
+pushPodspec() {
+  echo -e "${GREEN}Pushing podspec repo to remote...${NC}"
+  pod repo push "$SPEC_REPO_NAME" --allow-warnings "$1" &> /dev/null
+  if [[ ! $? -eq 0 ]]; then
+    echo -e "${RED}Failed to push pod spec repo${NC}${normal}"
+  fi
+}
+
+# returns the current podspec version ex. x.y.z
+currentPodspecVersion() {
+  # get the current version number from the podspec file
+  local version=$(egrep --max-count=1 --only-matching "\d{1,2}.\d{1,2}.\d{1,2}" "$1")
+  echo "$version"
+}
+
+# increments the current podspec version
+updatePodspecVersion() {
+  # get the current version number from the podspec file
+  local version=$(egrep --max-count=1 --only-matching "\d{1,2}.\d{1,2}.\d{1,2}" "$1")
+  # increase the current version number
+  local nextversion=$(echo $version | awk -F. -v OFS=. '
+    NF == 1 { print ++$NF };
+    NF > 1 {
+      # if increasing this number would cause it to be double digits then increment the previous field as well
+      if (length($NF + 1) > length($NF)) {
+        $(NF - 1)++;
+      }
+      $NF = sprintf("%0*d", length($NF), ($NF + 1) % (10 ^ length($NF)));
+      print
+    };
+  ');
+  echo -e "${GREEN}Incrementing podspec version to: $nextversion${NC}"
+  perl -e "s/$version/$nextversion/" -pi "$1"
+}
+
+# adds and commits the podspec file
+commitPodspec() {
+  echo -e "${GREEN}Commiting updated podspec file${NC}"
+  git -C "$WORKING_PATH" add "$1" &> /dev/null
+  git -C "$WORKING_PATH" commit -m "podspec version update" &> /dev/null
+}
+
+# returns 1 if the tag already exists
+isSpecRepoTagged() {
+  local tag=$(git -C "$WORKING_PATH" tag --list "$1")
+  if [[ ! -n $tag ]]; then
+    echo 0
+  else
+    echo 1
+  fi
+}
+
+# adds the tag and pushes to remote
+tagRepo() {
+  local version="$1"
+  if [[ $(isSpecRepoTagged $version) -eq 1 ]]; then
+    echo -e "${RED}Tag already exists: ${bold}$version${NC}${normal}"
+    exit 1
+  fi
+  echo -e "${GREEN}Adding tag to repo ${bold}$version${NC}${normal}"
+  git -C "$WORKING_PATH" tag "$version" &> /dev/null
+  if [[ ! $? -eq 0 ]]; then
+    echo -e "${RED}Failed to add tag: ${bold}$version${NC}${normal}"
+    exit 1
+  else
+    echo -e "${GREEN}Added tag ${bold}$version${NC}${normal}"
+  fi;
+
+  git -C "$WORKING_PATH" push &> /dev/null
+  if [[ ! $? -eq 0 ]]; then
+    echo -e "${RED}Failed to push repo${NC}"
+    exit 1
+  fi;
+
+  git -C $WORKING_PATH push --tags &> /dev/null
+  if [[ ! $? -eq 0 ]]; then
+    echo -e "${RED}Failed to push tag: ${bold}$version${NC}${normal}"
+  else
+    echo -e "${GREEN}Pushed tag to remote ${bold}$version${NC}${normal}"
+  fi;
+}
+
+# reverts the podspec version and exits
+revertAndFail() {
+local podspecfile=$1
+local version=$2
+local nextversion=$(currentPodspecVersion "$podspecfile")
+perl -e "s/$nextversion/$version/" -pi "$podspecfile"
+echo -e "${RED}Reverting podspec to version: ${bold}$version${NC}${normal}"
+exit 1;
+}
+
+################################################
+################### INPUT ######################
+################################################
+
+PODSPEC_SOURCES="https://github.com/CocoaPods/Specs"
+WORKING_PATH=$(pwd)
+COMMAND="$1"
+shift
 
 while getopts "x-:" optchar
 do
@@ -38,104 +205,68 @@ do
   -)
     case "${OPTARG}"
     in
-      repo)
-        repo="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
+      usage)
+        usage;;
+      spec-repo)
+        SPEC_REPO_NAME="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
       sources)
-        sources="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
+        PODSPEC_SOURCES="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
+      path)
+        WORKING_PATH="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ));;
     esac;;
-
   esac
 done
 
-if [ -z "$repo" ]; then
-  echo "Invalid pod spec repo!";
+AVAILABLE_COMMANDS=("push", "update", "tag", "validate")
+
+# validates the given comand
+if [[ ! "${AVAILABLE_COMMANDS[@]}" =~ "${COMMAND}" ]]; then
+  echo -e "${bold}${RED}Unknown command: ${bold}$COMMAND${NC}${normal}"
   usage
-fi;
+fi
 
-if [ -n "$(git status --porcelain)" ]; then
-    echo "You have uncommited changes. Please commit them before continuing";
-    git status -s --column
-    usage
+# validates the working path
+ABS_WORKING_PATH=$(cd $WORKING_PATH && pwd)
+if [[ ! -d "$ABS_WORKING_PATH" ]] || [[ $(isPod "$ABS_WORKING_PATH") -eq 0 ]] || [[ $(isGit "$ABS_WORKING_PATH") -eq 0 ]]; then
+  echo -e "${bold}${RED}Invalid working directory. Folder must be a git repository and contain a a .podspec file${bold}${NC}"
+  exit 1
 fi
 
 ################################################
-############ UPDATE THE POD SPEC ###############
+################### COMMAND ####################
 ################################################
 
-# find the podspec file in the current directory
-podspecfile=$(find $PWD -name "*.podspec")
-echo "podspec: $podspecfile"
-
-# get the current version number from the podspec file
-version=$(egrep --max-count=1 --only-matching "\d{1,2}.\d{1,2}.\d{1,2}" $podspecfile)
-
-# increase the current version number
-nextversion=$(echo $version | awk -F. -v OFS=. '
-  NF == 1 { print ++$NF };
-  NF > 1 {
-    # if increasing this number would cause it to be double digits then increment the previous field as well
-    if (length($NF + 1) > length($NF)) {
-        $(NF - 1)++;
-    }
-    $NF = sprintf("%0*d", length($NF), ($NF + 1) % (10 ^ length($NF)));
-    print
-  };
-');
-
-echo "$version -> $nextversion"
-perl -e "s/$version/$nextversion/" -pi $podspecfile
-
-################################################
-############ PUSH THE REPO #####################
-################################################
-
-# validate the spec repo
-repovalidate=$(echo "pod spec lint ${sources} --allow-warnings --quick")
-$repovalidate
-
-# if we failed to publish the pod then fail
-if [ $? -ne 0 ]; then
-  echo 'process failed. rolling back changes';
-  perl -e "s/$nextversion/$version/" -pi $podspecfile
-  exit -1;
-fi
-
-################################################
-############ COMMIT TO GIT #####################
-################################################
-
-# commit the message
-git add .
-git commit -m "podspec version update"
-
-# if we failed to publish the pod then fail
-if [ $? -ne 0 ]; then
-  echo 'process failed. rolling back changes';
-  perl -e "s/$nextversion/$version/" -pi $podspecfile
-  exit -1;
-fi
-
-# tag the repo
-tag=$(echo "git tag $nextversion")
-$tag
-
-# push the repo
-push=$(echo "git push")
-$push
-
-# and the tags
-push=$(echo "git push --tags")
-$push
-
-# if we failed to publish the pod then fail
-if [ $? -ne 0 ]; then
-  echo 'process failed. rolling back changes';
-  perl -e "s/$nextversion/$version/" -pi $podspecfile
-  exit -1;
-fi
-
-# push the spec repo
-repopush=$(echo "pod repo push ${repo} --allow-warnings")
-$repopush
+case "$COMMAND" in
+  update)
+  PODSPEC_FILE=$(findPodspec "$WORKING_PATH")
+  validateCleanWorkingDirectory
+  PODSPEC_VERSION=$(currentPodspecVersion "$PODSPEC_FILE")
+  updatePodspecVersion "$PODSPEC_FILE"
+  validatePodspec "$PODSPEC_FILE"
+  if [[ $? -eq 0 ]]; then
+    echo -e "${GREEN}${bold}Podspec is valid!${NC}${normal}"
+  else
+    revertAndFail "$PODSPEC_FILE" "$PODSPEC_VERSION"
+  fi
+  commitPodspec "$PODSPEC_FILE"
+  ;;
+  tag)
+  PODSPEC_FILE=$(findPodspec "$WORKING_PATH")
+  validateCleanWorkingDirectory
+  tagRepo $(currentPodspecVersion "$PODSPEC_FILE")
+  ;;
+  validate)
+    PODSPEC_FILE=$(findPodspec "$WORKING_PATH")
+    validatePodspec "$PODSPEC_FILE"
+    if [[ $? -eq 0 ]]; then
+      echo -e "${GREEN}${bold}Podspec is valid!${NC}${normal}"
+    fi
+  ;;
+  push)
+    PODSPEC_FILE=$(findPodspec "$WORKING_PATH")
+    validateSpecRepoName
+    pushPodspec "$PODSPEC_FILE"
+  ;;
+esac
 
 exit 0;
