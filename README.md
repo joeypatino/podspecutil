@@ -1,15 +1,15 @@
-# Podspecutil
+## Podspecutil
 
 Podspecutil is a command line script for managing CocoaPod podspecs. With Podspecutil, you can push podspecs to remote spec repos, update podspec versions, tag repos with podspec versions, and validate podspecs using pod spec lint.
 
-## Requirements
+### Requirements
 
 Podspecutil requires the following:
 
 Ruby 2.6.3 or later
 Cocoapods 1.8.4 or later
 
-## Installation
+### Installation
 
 To install Podspecutil, simply clone this repository and move the `podspecutil` file to /usr/local/bin/ and run
 
@@ -17,7 +17,7 @@ To install Podspecutil, simply clone this repository and move the `podspecutil` 
 chmod +x /usr/local/bin/podspecutil
 ```
 
-## Usage
+### Usage
 
 To use Podspecutil, simply run the following command in your terminal:
 
@@ -25,7 +25,7 @@ To use Podspecutil, simply run the following command in your terminal:
 podspecutil <command> [<args>]
 ```
 
-## Usage
+### Usage
 
 ```
 $ podspecutil <command> [<args>]
@@ -49,6 +49,10 @@ Options:
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/joeypatino/podspecutil. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the Contributor Covenant code of conduct.
 
-## License
+### Meta
+
+Joey Patino – @nsinvalidarg – joey.patino@pm.me
+
+### License
 
 podspecutil is available as open source under the terms of the MIT License.
