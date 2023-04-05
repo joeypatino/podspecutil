@@ -11,10 +11,10 @@ Cocoapods 1.8.4 or later
 
 ## Installation
 
-To install Podspecutil, simply clone this repository and move the podspecutil.sh file to /usr/local/bin/ and run
+To install Podspecutil, simply clone this repository and move the `podspecutil` file to /usr/local/bin/ and run
 
 ```bash
-chmod +x /usr/local/bin/podspecutil.sh
+chmod +x /usr/local/bin/podspecutil
 ```
 
 ## Usage
