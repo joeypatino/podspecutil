@@ -25,10 +25,10 @@ To use Podspecutil, simply run the following command in your terminal:
 podspecutil <command> [<args>]
 ```
 
-## Full usage information:
+## Usage
 
 ```
-Usage: podspecutil <command> [<args>]
+$ podspecutil <command> [<args>]
 
 Commands:
   push         Validate and push a podspec to a remote spec repo.
