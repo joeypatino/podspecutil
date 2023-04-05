@@ -9,7 +9,7 @@ Podspecutil requires the following:
 Ruby 2.6.3 or later
 Cocoapods 1.8.4 or later
 
-### Installation
+## Installation
 
 To install Podspecutil, simply clone this repository and move the `podspecutil` file to /usr/local/bin/ and run
 
